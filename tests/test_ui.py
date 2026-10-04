@@ -142,3 +142,57 @@ class WindowTests(unittest.TestCase):
         self.pump(lambda: self.window.operation_worker is None)
         APP.processEvents()
         self.assertTrue(self.window._closing)
+
+    def prepare_config_source(self):
+        source = self.root / 'Source' / 'Source.uproject'
+        source.parent.mkdir()
+        source.write_text('{}')
+        config = source.parent / 'Config'
+        config.mkdir()
+        (config / 'DefaultEngine.ini').write_text('[Render]\nQuality=3\n')
+        self.window.config_source_edit.setText(str(source))
+        target = self.window.get_registered_uproject_file().parent / 'Config'
+        target.mkdir()
+        file = target / 'DefaultEngine.ini'
+        file.write_text('[Render]\nQuality=1\nKeep=2\n')
+        return file
+
+    def test_config_preview_cancel_writes_nothing(self):
+        from PySide6.QtWidgets import QMessageBox
+        self.select('ConfigCancel')
+        self.pump(lambda: self.window.active_scan_worker is None)
+        target = self.prepare_config_source()
+        original = target.read_bytes()
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Cancel):
+            self.window.preview_config_merge()
+        self.assertEqual(target.read_bytes(), original)
+        self.assertFalse((target.parent.parent / '.pipeline-config-backups').exists())
+
+    def test_config_merge_preserves_unsaved_plugin_selection(self):
+        from PySide6.QtWidgets import QMessageBox
+        self.select('ConfigApply')
+        self.pump(lambda: self.window.active_scan_worker is None)
+        target = self.prepare_config_source()
+        self.window.plugin_checks['ConfigApply'].setChecked(False)
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Apply):
+            self.window.preview_config_merge()
+        self.pump(lambda: self.window.operation_worker is None)
+        self.assertIn('Quality=3', target.read_text())
+        self.assertIn('Keep=2', target.read_text())
+        self.assertFalse(self.window.plugin_checks['ConfigApply'].isChecked())
+        self.assertEqual(len(list((target.parent.parent / '.pipeline-config-backups').glob('*.json'))), 1)
+
+    def test_config_restore_through_ui(self):
+        from PySide6.QtWidgets import QMessageBox
+        self.select('ConfigRestore')
+        self.pump(lambda: self.window.active_scan_worker is None)
+        target = self.prepare_config_source()
+        original = target.read_bytes()
+        with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Apply):
+            self.window.preview_config_merge()
+        self.pump(lambda: self.window.operation_worker is None)
+        backup = next((target.parent.parent / '.pipeline-config-backups').glob('*.json'))
+        with patch('app.ui.main_window.QFileDialog.getOpenFileName', return_value=(str(backup), '')), patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Apply):
+            self.window.restore_config_backup()
+        self.pump(lambda: self.window.operation_worker is None)
+        self.assertEqual(target.read_bytes(), original)

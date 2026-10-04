@@ -46,6 +46,10 @@ Copies are staged beside the destination before replacements begin. If copying o
 
 Every successful descriptor save keeps the preceding descriptor in `Project.uproject.bak`. **Restore Project Backup** restores it and saves the current descriptor as `Project.uproject.before-restore`. Restoring the descriptor does not remove or restore imported plugin folders. A project modified externally since its scan must be rescanned before applying.
 
+## Copy project Config settings
+
+Select a target project, then choose **Select Source Project… → Preview Config Merge…** in step 04, Project Config Settings. Review the detailed diff and apply. All Config `.ini` files, including platform subfolders, are merged with source values taking precedence; unrelated target settings remain. **Restore Config Backup…** restores a selected timestamped backup. See the [user guide](docs/USER_GUIDE.md#copy-all-project-config-settings) for array behavior, supported formats, and recovery limits.
+
 ## Presets and workspace
 
 Presets are JSON files in `~/UnrealPluginPresets`. Save named selections, including an empty selection, or import/export them. Loading a preset replaces the current checkbox selection. Missing plugins are reported before applying the available portion. Presets contain plugin names, not binaries or source files. Existing preset names require confirmation before replacement.
@@ -86,6 +90,7 @@ The GitHub workflow creates a Setup EXE, portable ZIP, checksums, and build inve
 - `app/ui/accordion.py`, `styles.py`: reusable sections and themes.
 - `app/core/engine_manager.py`: engine discovery and launching.
 - `app/core/plugin_service.py`: state interpretation, descriptor updates, staged imports, rollback.
+- `app/core/config_service.py`: Config INI merge, diff previews, multi-file writes, and restoration.
 - `app/core/project_manager.py`: validated descriptors, atomic writes, backups and restore.
 - `app/core/preset_service.py`: preset validation and interchange.
 - `app/workers/scan_worker.py`: cancellable background discovery.

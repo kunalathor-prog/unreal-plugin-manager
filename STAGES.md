@@ -33,3 +33,9 @@ Project profiles could group an engine, external plugin directory, and preferred
 - User guide, repair instructions, build instructions, third-party notices and release metadata template.
 
 Local checkpoint: **31 tests passed**, plus the source `--self-test` passed on macOS. No Windows EXE has been built or verified here yet. Repository authentication, publisher/support metadata, Windows acceptance and final license/signing decisions remain outstanding. Distribution is outside Fab, as selected by the owner.
+
+## Project Config transfer — October 4, 2026
+
+Implemented source-project selection, recursive Config INI merge with source precedence, file-difference preview, timestamped backups, and previewed restoration. Unrelated target settings and files remain; matching array operator groups are replaced in source order. Includes platform subfolders and reports non-INI files that are not copied. Config operations run in the background and preserve unsaved plugin selections.
+
+Validation: **46 tests passed** on the local macOS development host, including merge/restore UI integration, Unicode, repeated sections, array operators, rollback, stale-file checks, and path validation. Windows packaging has not been rerun for this change.

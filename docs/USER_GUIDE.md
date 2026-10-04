@@ -45,3 +45,20 @@ Diagnostic logs are in `%LOCALAPPDATA%\UnrealPipelineManager\logs\application.lo
 Use Windows Settings → Apps → Unreal Pipeline Manager → Uninstall. User projects, presets, logs, and workspace preferences are retained.
 
 This is an independent utility, not an Epic Games product. See the included third-party notices.
+
+## Copy all project Config settings
+
+Use **04 · Project Config Settings**, below **03 · Plugin Environment**:
+
+1. Select the destination `.uproject` as the current target.
+2. Click **Select Source Project…** and choose the project whose settings you want.
+3. Click **Preview Config Merge…**, then **Show Details** to review the file differences.
+4. Close Unreal Editor for the target project and click **Apply**.
+
+All `.ini` files under the source project's `Config` directory are considered recursively, including platform subfolders. Missing target files and sections are added. Matching section/key names are compared without case sensitivity; source values replace matching target values while target-only keys, sections, and files remain. Target comments are retained. For an array key, the source's complete ordered group of `+`, `-`, `.`, and `!` instructions replaces that key's target instructions; this is not a union of array values. Unreal's inherited engine defaults can still affect the final runtime settings.
+
+“All” includes project identity values, paths, platform settings, and any credentials present in these files. Review the diff before applying. Assets, plugins, certificates, and other non-INI files are not copied; skipped non-INI filenames are listed in the preview. `Saved/Config`, engine installation defaults, and the `.uproject` descriptor are not copied. UTF-8 (with or without BOM) and BOM-marked UTF-16 files are supported. Unsupported syntax, including multiline continuations, stops the preview rather than rewriting it incorrectly.
+
+Config changes use a background worker and do not rescan or reset unsaved plugin checkbox selections. A target file changed since preview causes the operation to abort; completed writes are rolled back after handled failures.
+
+Each operation saves a timestamped JSON backup under the target project's `.pipeline-config-backups` directory. Use **Restore Config Backup…** to select one and review its reverse diff. Restoration removes files created by that merge and restores previous file contents; empty directories may remain. Restore refuses files edited since that operation, and saves another backup before restoring. Backups contain original Config contents, so keep them private if the configuration contains secrets. Recovery from process termination or power loss is not guaranteed.

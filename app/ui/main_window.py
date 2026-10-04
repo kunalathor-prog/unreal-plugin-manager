@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.version import APP_NAME, VERSION
+from app.core.config_service import ConfigService
 from app.core.plugin_service import PluginService
 from app.core.engine_manager import EngineManager
 from app.core.project_manager import ProjectManager
@@ -38,6 +39,7 @@ class MainWindow(QMainWindow):
 
         self.operation_worker = None
         self._operation_message = ""
+        self._operation_rescan = True
         self.plugins = {}
         self.scan_snapshot = b""
         self._scan_generation = 0
@@ -270,8 +272,34 @@ class MainWindow(QMainWindow):
         self.plugin_section.body_layout.addLayout(bottom_actions)
         layout.addWidget(self.plugin_section)
 
-        # ---------------- Section 4: Log ----------------
-        self.log_section = AccordionSection("04  ·  Output Log", "Application status and system logs.", True)
+        # ---------------- Section 4: Project Config ----------------
+        self.config_section = AccordionSection("04  ·  Project Config Settings", "Copy and merge Config settings from another project.", True)
+        config_layout = self.config_section.body_layout
+        source_row = QHBoxLayout()
+        self.config_source_edit = QLineEdit()
+        self.config_source_edit.setReadOnly(True)
+        self.config_source_edit.setPlaceholderText("Choose the project to copy settings from…")
+        source_row.addWidget(self.config_source_edit, 1)
+        source_button = QPushButton("Select Source Project…")
+        source_button.clicked.connect(self.select_config_source)
+        source_row.addWidget(source_button)
+        config_layout.addLayout(source_row)
+        config_note = QLabel("Merge all Config .ini settings, including platform folders. Source values win; unrelated target settings remain.")
+        config_note.setWordWrap(True)
+        config_layout.addWidget(config_note)
+        actions = QHBoxLayout()
+        self.merge_config_btn = QPushButton("Preview Config Merge…")
+        self.merge_config_btn.clicked.connect(self.preview_config_merge)
+        self.restore_config_btn = QPushButton("Restore Config Backup…")
+        self.restore_config_btn.clicked.connect(self.restore_config_backup)
+        for button in (self.merge_config_btn, self.restore_config_btn):
+            button.setEnabled(False)
+            actions.addWidget(button)
+        config_layout.addLayout(actions)
+        layout.addWidget(self.config_section)
+
+        # ---------------- Section 5: Log ----------------
+        self.log_section = AccordionSection("05  ·  Output Log", "Application status and system logs.", True)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setObjectName("logView")
@@ -440,6 +468,8 @@ class MainWindow(QMainWindow):
                        self.save_preset_btn, self.restore_btn, self.plugin_type_tabs,
                        self.launch_engine_button, self.import_preset_btn, self.export_preset_btn):
             widget.setEnabled(not busy)
+        for button in (self.merge_config_btn, self.restore_config_btn):
+            button.setEnabled(not busy and self.get_registered_uproject_file() is not None)
 
     def scan_all_plugins(self, *_) -> None:
         if self._closing or self.operation_worker:
@@ -525,13 +555,14 @@ class MainWindow(QMainWindow):
         elif self._scan_pending:
             self.scan_all_plugins()
 
-    def start_operation(self, operation, message: str) -> None:
+    def start_operation(self, operation, message: str, rescan: bool = True) -> None:
         if self.active_scan_worker or self.operation_worker:
             return
         self._operation_message = message
+        self._operation_rescan = rescan
         self.operation_worker = OperationWorker(operation)
         self.operation_worker.finished.connect(self.operation_finished)
-        for section in (self.engine_section, self.project_section, self.plugin_section):
+        for section in (self.engine_section, self.project_section, self.plugin_section, self.config_section):
             section.setEnabled(False)
         self.setCursor(Qt.CursorShape.WaitCursor)
         self.append_log("[WORKING] Updating files. Please wait for the operation to finish.")
@@ -543,7 +574,7 @@ class MainWindow(QMainWindow):
         error = worker.error
         worker.deleteLater()
         self.unsetCursor()
-        for section in (self.engine_section, self.project_section, self.plugin_section):
+        for section in (self.engine_section, self.project_section, self.plugin_section, self.config_section):
             section.setEnabled(True)
         if error:
             self.append_log(f"[ERROR] {error}")
@@ -551,7 +582,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Operation Failed", error)
         else:
             self.append_log(self._operation_message)
-            if not self._closing:
+            if not self._closing and self._operation_rescan:
                 self.scan_all_plugins()
         if self._closing:
             QTimer.singleShot(0, self.close)
@@ -800,3 +831,57 @@ class MainWindow(QMainWindow):
             return
         self.start_operation(lambda: ProjectManager.restore_backup(project),
                              "[PROJECT] Restored project descriptor backup.")
+
+    def select_config_source(self) -> None:
+        file, _ = QFileDialog.getOpenFileName(self, "Source Project for Config Settings", str(Path.home()), "Unreal Projects (*.uproject)")
+        if file:
+            self.config_source_edit.setText(file)
+
+    def preview_config_merge(self) -> None:
+        target = self.get_registered_uproject_file()
+        if not target or self.active_scan_worker or self.operation_worker:
+            return
+        source = self.config_source_edit.text().strip()
+        if not source:
+            QMessageBox.warning(self, "Select Source", "Choose the source .uproject file first.")
+            return
+        try:
+            plan = ConfigService.plan(Path(source), target)
+            self.confirm_config_plan(plan, "Merge Project Config Settings")
+        except Exception as exc:
+            QMessageBox.critical(self, "Config Preview Failed", str(exc))
+
+    def confirm_config_plan(self, plan, title: str) -> None:
+        if not plan.changes:
+            message = "No Config settings need changing."
+            if plan.skipped:
+                message += "\nNon-INI files were not copied: " + ", ".join(plan.skipped)
+            QMessageBox.information(self, title, message)
+            return
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setText(f"Update {len(plan.changes)} Config file(s) in {plan.target.parent.name}?")
+        dialog.setInformativeText("Review Show Details before applying. Close Unreal Editor first. "
+            "All source settings are included, including project IDs and asset paths. "
+            "Referenced assets are not copied. A restorable backup is saved in .pipeline-config-backups.")
+        dialog.setDetailedText(plan.preview())
+        dialog.setStandardButtons(QMessageBox.StandardButton.Apply | QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if dialog.exec() == QMessageBox.StandardButton.Apply:
+            self.start_operation(lambda: ConfigService.apply(plan),
+                f"[CONFIG] Updated {len(plan.changes)} file(s). Backup: {plan.target.parent / '.pipeline-config-backups'}. Restart Unreal Editor.",
+                rescan=False)
+
+    def restore_config_backup(self) -> None:
+        target = self.get_registered_uproject_file()
+        if not target or self.active_scan_worker or self.operation_worker:
+            return
+        file, _ = QFileDialog.getOpenFileName(self, "Select Config Backup",
+            str(target.parent / ".pipeline-config-backups"), "Config backups (*.json)")
+        if not file:
+            return
+        try:
+            plan = ConfigService.restore_plan(target, Path(file))
+            self.confirm_config_plan(plan, "Restore Project Config Settings")
+        except Exception as exc:
+            QMessageBox.critical(self, "Config Restore Failed", str(exc))
